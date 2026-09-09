@@ -1,0 +1,17 @@
+# Postgres for local development and the test suite. The credentials below are
+# throwaway and local-only; the container is not reachable off the host. The service itself runs on the
+# host during development (uvicorn --reload); only the database is containerised.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: genesis
+      POSTGRES_PASSWORD: genesis
+      POSTGRES_DB: findings
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genesis -d findings"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
