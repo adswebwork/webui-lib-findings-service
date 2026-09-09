@@ -1,5 +1,7 @@
 # Findings service
 
+[![CI](https://github.com/adswebwork/webui-lib-findings-service/actions/workflows/ci.yml/badge.svg)](https://github.com/adswebwork/webui-lib-findings-service/actions/workflows/ci.yml)
+
 Idempotent ingestion for scanner findings. FastAPI + Postgres.
 
 Scanners produce the same finding over and over: they re-run on every build, they retry
@@ -157,6 +159,11 @@ Stated plainly rather than left for someone to discover:
 
 ## Tests
 
+    make test
+
 The suite runs against real Postgres, on purpose. An in-memory SQLite substitute would
 not exercise `ON CONFLICT ... RETURNING`, `array_position`, or timezone-aware
 timestamps — which is most of what there is to get wrong here.
+
+CI runs the same 19 tests against a `postgres:16` service container on every push,
+and builds the image, so neither depends on anything being installed on one machine.
