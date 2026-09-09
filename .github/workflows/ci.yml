@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: tests (postgres 16)
+    runs-on: ubuntu-latest
+
+    # A real Postgres, not a substitute. The suite exercises ON CONFLICT ... RETURNING,
+    # array_position and timezone-aware timestamps, none of which an in-memory SQLite
+    # stand-in would run -- and those are most of what there is to get wrong here.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: genesis
+          POSTGRES_PASSWORD: genesis
+          # Created by the image, so the suite needs no setup step of its own.
+          POSTGRES_DB: findings_test
+        ports:
+          - 5432:5432
+        # Without the health check the job races the database and fails on a cold start
+        # roughly one run in three.
+        options: >-
+          --health-cmd "pg_isready -U genesis -d findings_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # config.py reads FINDINGS_-prefixed settings, and conftest.py uses setdefault,
+      # so this overrides the local docker-compose port without touching the code.
+      FINDINGS_DATABASE_URL: postgresql+asyncpg://genesis:genesis@localhost:5432/findings_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the suite
+        run: pytest -q
+
+  image:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile is part of the deliverable; a broken one should fail here rather
+      # than the first time somebody tries to deploy it.
+      - name: Build the image
+        run: docker build -t findings-service:ci .
