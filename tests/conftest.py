@@ -10,7 +10,14 @@ os.environ.setdefault(
 )
 
 from app import db  # noqa: E402
+from app.config import settings  # noqa: E402
+
+# This suite deletes every row. Refuse to run against anything that is not a test database.
+assert settings.database_url.rsplit("/", 1)[-1].endswith("_test"), (
+    "refusing to run: FINDINGS_DATABASE_URL must point at a database whose name ends in _test"
+)
 from app.main import app  # noqa: E402
+from app.migrate import migrate  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.ratelimit import limiter  # noqa: E402
 
@@ -26,11 +33,10 @@ async def prepare():
     points at the pool. Disposing per test keeps the lifetime of a connection inside the
     lifetime of the loop that created it.
 
-    create_all is idempotent, so this is a truncate in the steady state rather than a
-    schema rebuild.
+    Schema comes from the real migrations, so the tests exercise the same SQL a deploy runs.
     """
+    await migrate(db.engine)
     async with db.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(table.delete())
 

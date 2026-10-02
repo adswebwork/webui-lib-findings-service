@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import settings
-from .models import Base
+from .migrate import migrate
 
 engine = create_async_engine(
     settings.database_url,
@@ -24,11 +24,5 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 async def create_all() -> None:
-    """Schema creation for local development and tests.
-
-    Real deployments get a migration tool; create_all cannot express the column changes
-    and backfills a live table needs. It is here so `docker compose up` and pytest work
-    without a migration step, not as a deployment path.
-    """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Bring the schema up to date by applying pending migrations (see app/migrate.py)."""
+    await migrate(engine)

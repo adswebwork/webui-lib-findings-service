@@ -7,6 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY migrations ./migrations
 
 # Non-root: nothing here needs to write to the filesystem, and a container that cannot
 # escalate is one less thing to reason about when it runs someone else's scan output.

@@ -4,11 +4,14 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
-from fastapi.responses import JSONResponse
+from pathlib import Path
+
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.datastructures import Headers, MutableHeaders
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .api_v2 import router as v2_router
 from .db import create_all, engine, get_session
 from .ingest import ingest
 from .models import AuditRun, Finding
@@ -89,6 +92,7 @@ class RequestContext:
 
 
 app.add_middleware(RequestContext)
+app.include_router(v2_router)
 
 
 @app.post("/v1/findings", response_model=IngestResult)
@@ -180,8 +184,18 @@ async def healthz(session: AsyncSession = Depends(get_session)) -> dict:
     """
     try:
         await session.execute(text("SELECT 1"))
-    except Exception as exc:  # noqa: BLE001 - the reason is the useful part here
+    except Exception:  # noqa: BLE001
+        # The reason goes to the log, not the response: driver errors can include the
+        # host, user and database name.
+        log.exception("health check failed")
         return JSONResponse(
-            status_code=503, content={"status": "degraded", "database": str(exc)}
+            status_code=503, content={"status": "degraded", "database": "unavailable"}
         )
     return {"status": "ok", "database": "ok"}
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard() -> FileResponse:
+    """Read-only dashboard over the v2 API. One static file, served same-origin, so there
+    is no build step and no CORS configuration."""
+    return FileResponse(Path(__file__).parent / "static" / "dashboard.html")

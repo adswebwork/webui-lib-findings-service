@@ -2,10 +2,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Configuration is read from the environment; nothing here has a production default.
+    """Configuration is read from FINDINGS_* environment variables or a .env file.
 
-    DATABASE_URL is required rather than defaulted so a misconfigured deploy fails at
-    startup instead of quietly writing to a local database nobody is watching.
+    database_url defaults to the local docker-compose database so a fresh checkout runs
+    with `make run`. That default is for development only: set FINDINGS_DATABASE_URL
+    explicitly anywhere else.
     """
 
     database_url: str = "postgresql+asyncpg://genesis:genesis@localhost:55432/findings"

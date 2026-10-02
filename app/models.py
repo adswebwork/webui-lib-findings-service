@@ -94,3 +94,64 @@ class AuditRun(Base):
     __table_args__ = (
         Index("ix_audit_runs_project_time", "project", "created_at"),
     )
+
+
+# --- v2 -------------------------------------------------------------------------------
+# The SQL files in migrations/ are the source of truth for the schema; these mappings are
+# for queries. tests/test_migrations.py guards against drift.
+from sqlalchemy import ForeignKey  # noqa: E402
+from sqlalchemy.dialects.postgresql import JSONB  # noqa: E402
+
+
+class Scope(Base):
+    __tablename__ = "scopes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    page: Mapped[str] = mapped_column(String(500), nullable=False)
+    ruleset: Mapped[str] = mapped_column(String(500), nullable=False)
+    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_attempt_status: Mapped[str | None] = mapped_column(String(16))
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    report_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    project: Mapped[str] = mapped_column(String(128), nullable=False)
+    scope_id: Mapped[int] = mapped_column(ForeignKey("scopes.id"), nullable=False)
+    scan_id: Mapped[str | None] = mapped_column(String(128))
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class Issue(Base):
+    __tablename__ = "issues"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    issue_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    scope_id: Mapped[int] = mapped_column(ForeignKey("scopes.id"), nullable=False)
+    project: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    page: Mapped[str] = mapped_column(String(500), nullable=False)
+    rule_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    locator: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    help_url: Mapped[str | None] = mapped_column(String(500))
+    observation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

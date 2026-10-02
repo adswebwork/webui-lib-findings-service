@@ -2,168 +2,132 @@
 
 [![CI](https://github.com/adswebwork/webui-lib-findings-service/actions/workflows/ci.yml/badge.svg)](https://github.com/adswebwork/webui-lib-findings-service/actions/workflows/ci.yml)
 
-Idempotent ingestion for scanner findings. FastAPI + Postgres.
+**A website issue tracker that receives automated check results, remembers recurring
+problems, and shows developers what still needs fixing.** FastAPI + PostgreSQL.
 
-Scanners produce the same finding over and over: they re-run on every build, they retry
-when the network drops, and a developer re-runs them repeatedly while fixing what they
-reported. An ingestion path that treats each arrival as new turns one problem into
-hundreds of rows within a day, and the dashboard on top of it stops being readable.
+It does not inspect websites itself. It sits between a checker and a dashboard:
 
-This service takes a whole scan report, writes it idempotently, and closes out what the
-scan no longer reports. It is small on purpose -- three endpoints -- and the README
-argues the design decisions rather than just listing them.
+    website -> checker (a11y-audit) -> adapter -> FastAPI -> PostgreSQL -> dashboard
 
-It began as a port of a PHP endpoint in a local development console, which received the
-CSS-budget, accessibility and SEO findings an in-browser audit tool produced per page.
-That version runs against SQLite on one developer's machine and is fine there. This
-exists because the same design has to hold when the producers are many, the store is
-shared, and callers retry.
+## An example
+
+A check of `/checkout` reports an image with no alt text and an unlabeled input. The
+service stores both as open issues. Run the check again and the same two issues are
+updated, not duplicated. Fix the image and run a *complete* new check: that issue moves
+to resolved. Break it again and it reopens. A failed check, an older report arriving late,
+or a half-finished scan never makes the project look healthier than it is.
+
+Open the dashboard at `http://127.0.0.1:8000/dashboard` to see current issues, filter and
+sort them, and inspect the evidence the checker supplied.
+
+## What is included
+
+| Piece | Where | Status |
+|---|---|---|
+| API (v2) and database | `app/`, `migrations/` | shipped, tested |
+| Legacy API (v1) | `app/main.py` | kept for compatibility; not for new use |
+| Checker adapter | `tools/a11y_adapter.py` | shipped; maps `a11y-audit` output |
+| Dashboard (read-only) | `app/static/dashboard.html` | shipped |
+| Real-scanner walkthrough | `demo/e2e.py` | shipped |
+| Demo pages and a sample scan | `demo/pages/`, `demo/fixtures/` | **demo data**, not a client audit |
+
+External dependency: the **`a11y-audit` skill** (plugin `engineering`, from the local
+`andre-skills` marketplace) supplies `scan.mjs`, which needs Node and a one-time
+`bash <skill>/scripts/setup.sh` install of Playwright and axe-core. Not included here.
+
+## Setup
+
+Prerequisites: Python 3.11, Docker, and (for real scans) Node.
 
 ```bash
-make db      # postgres on :55432 via docker compose
-make test    # integration suite against real postgres
-make run     # uvicorn on :8000, docs at /docs
+make setup   # creates .venv, installs dependencies
+make test    # starts Postgres (docker compose) and runs the suite
+make run     # service on http://127.0.0.1:8000, API docs at /docs
 ```
 
-## The endpoints
+First real scan, in a second terminal (scans only a page the script serves locally):
 
-| | |
+```bash
+make e2e     # scan -> submit -> retry -> fix -> reopen -> stale -> failed
+```
+
+Then open `http://127.0.0.1:8000/dashboard?project=portfolio-demo`. To submit your own
+scan: run `scan.mjs` on a page you are authorized to test, then
+
+```bash
+.venv/bin/python -m tools.a11y_adapter path/to/scan.json --project my-site --api http://127.0.0.1:8000
+```
+
+Postgres listens on `127.0.0.1:55432`. Set `FINDINGS_DATABASE_URL` to override (see
+`.env.example`). The service has **no authentication**: keep it on localhost.
+
+## Key concepts
+
+- **Issue**: one rule failing on one page (optionally at one locator). Identity ignores
+  wording and severity, so rescoring a rule updates the issue rather than duplicating it.
+- **Report**: one delivery from a checker for one page. The producer chooses a
+  `report_id` once and reuses it on retries; replays are free and change nothing.
+- **Scope**: (project, source, category, page, ruleset). A *complete* report is
+  authoritative for its scope only: it resolves what it no longer lists, and nothing else.
+- **Complete / partial / failed**: only `complete` can resolve issues. The others are
+  recorded and surfaced as project health `failed`.
+- **Stale**: a complete report not newer than the last applied one is recorded, not applied.
+
+Example request and response:
+
+```bash
+curl -s localhost:8000/v2/reports -H 'content-type: application/json' -d '{
+  "report_id": "scan-2026-10-02-checkout", "project": "shop", "source": "a11y-audit",
+  "category": "ada", "page": "https://shop.example/checkout", "ruleset": "axe:wcag2a",
+  "status": "complete", "scanned_at": "2026-10-02T15:00:00Z",
+  "findings": [{"rule_id": "image-alt", "detail": "Images must have alternative text", "severity": "high"}]
+}'
+# {"report_id":"scan-2026-10-02-checkout","status":"complete","outcome":"applied",
+#  "applied":true,"replayed":false,"new":1,"seen_again":0,"reopened":0,"resolved":0,...}
+```
+
+| Endpoint | Purpose |
 |---|---|
-| `POST /v1/findings` | ingest one audit run; safe to retry |
-| `GET /v1/findings/{project}` | open findings, worst first, plus severity counts |
-| `GET /healthz` | liveness plus a real database check |
+| `POST /v2/reports` | submit a report (`409` on id reuse with different content, `429` over budget) |
+| `GET /v2/projects` | projects with open counts and health |
+| `GET /v2/projects/{p}` | project detail and per-page latest check |
+| `GET /v2/projects/{p}/issues` | filter by state/severity/category/source/page/rule; sort; `limit`/`offset` |
+| `GET /v2/issues/{id}` | one issue with evidence |
+| `GET /dashboard` | the dashboard |
+| `GET /healthz` | liveness plus a database check |
 
-## The design
+## Architecture
 
-### Ingest is idempotent, and the key is the whole thing
-
-```
-dedupe_key = sha256(project | kind | page | locator)
-```
-
-with a unique constraint behind it. Every write is `INSERT ... ON CONFLICT (dedupe_key)
-DO UPDATE`, so a repeat arrival bumps `seen_count` and `last_seen` instead of adding a
-row.
-
-This is not defensive coding for a rare case. The same finding arrives repeatedly by
-design: the console re-audits on every page load, the browser retries on network
-failure, and a developer hits `audit` over and over while fixing a page. Without the
-key, one problem becomes hundreds of rows inside a day and the dashboard stops being
-readable — which is the actual failure mode, not data loss.
-
-Three details worth the space:
-
-- **The separator is load-bearing.** Joined naively, `("ab", "c")` and `("a", "bc")`
-  hash the same. Locators and page paths are both arbitrary text, so that collision is
-  reachable, not theoretical. Fields are joined on `\x1f`.
-- **`detail` and `severity` are deliberately not in the key.** They are properties of a
-  finding, not its identity. If a rule gets reworded or rescored, that has to update the
-  row it already owns rather than orphan it and open a new one.
-- **sha256, not the sha1 the PHP started with.** Not a security boundary, but there is
-  no reason to leave a weak hash in a service whose job is reporting security-adjacent
-  findings.
-
-### The response tells a retrying client what its retry did
-
-```json
-{"submitted": 3, "accepted": 0, "duplicates": 3, "resolved": 1}
-```
-
-A client that never saw the first response can tell from `accepted: 0` that its earlier
-call landed. That is what makes the endpoint genuinely safe to retry rather than merely
-non-destructive.
-
-### Resolution, not deletion
-
-Most ingestion paths stop at dedupe and have no answer for *what happens when the
-finding goes away*. Here the endpoint takes a whole report rather than one finding at a
-time, precisely so it can answer that: anything previously open for this
-`(project, kind, page)` and absent from the payload is marked `resolved_at` — not
-deleted.
-
-That keeps two questions answerable that a delete would destroy: what this page used to
-get wrong, and the fix rate over time. It also means a regression **reopens the original
-row** rather than creating a new one, so `seen_count` stays an honest record of how often
-something has broken.
-
-Scoping matters here. A clean run of `/cart`'s accessibility audit must not close
-`/checkout`'s findings or `/cart`'s SEO findings — the payload says nothing about
-either. There is a test for exactly this.
-
-### Validation fails closed
-
-Pydantic models are `extra="forbid"` with closed enums for `kind` and `severity` and a
-pattern on `project`. A scanner that starts sending a field we do not store gets told,
-instead of us silently dropping data someone believes is being recorded.
-
-Oversized reports are **rejected, not truncated**. Truncating would make a page look
-better than it is, and then the resolution pass would close findings that are still
-real — a silent correctness bug produced by a well-meant limit.
-
-### Backpressure returns 429, never drops
-
-A page erroring in a loop, or a scanner wired into hot reload, can post continuously.
-The write budget is **per project** so one noisy project cannot starve the rest, and
-over-budget requests get `429` with `Retry-After` rather than a discarded report — for
-the same reason as above: to the caller, a dropped report is indistinguishable from a
-page that got better.
-
-### One statement per report
-
-The upsert is a single batched `INSERT ... ON CONFLICT ... RETURNING seen_count` for the
-whole report. `seen_count` comes back post-update, so `1` means this statement inserted
-the row and anything higher means it already existed — new versus repeat, with no
-read-before-write. The SQLite version needs a `SELECT` per finding because it cannot
-tell you which branch fired.
-
-One consequence: Postgres refuses to let a single `ON CONFLICT` statement touch the same
-row twice, so a scanner emitting one locator twice would be a 500. Duplicates are
-collapsed within the batch before the statement is built.
-
-## Where Redis goes
-
-It isn't here, and that is a decision rather than an omission. At one developer box with
-a handful of scanners, an in-process sliding window and a synchronous write are the
-right size, and adding a queue would buy latency and an at-least-once delivery problem
-in exchange for nothing.
-
-Two things change that, and they are different problems:
-
-1. **More than one worker.** The rate limiter is in-process, so running two workers
-   doubles the effective limit. The counter has to move to Redis — `INCR` with a TTL, or
-   a token bucket in a Lua script for exactness — before the budget means anything.
-2. **Bursts outrunning the write path.** Ingest becomes an enqueue, workers drain. That
-   makes delivery at-least-once, which is only safe because the write is already
-   idempotent: at-least-once delivery plus idempotent writes is effectively
-   exactly-once, and the dedupe key is what buys that.
-
-A short-TTL cache on `GET /v1/findings/{project}` is the third use, and the least
-interesting — the dashboard polls the same rollup repeatedly and the data tolerates
-being a few seconds stale.
-
-## Where this would need more work
-
-Stated plainly rather than left for someone to discover:
-
-- **Migrations.** `create_all` is for local development and tests. It cannot express the
-  column changes and backfills a live table needs; a real deployment gets Alembic.
-- **Partitioning.** `findings` grows with pages × rules × projects. The read path is
-  almost entirely "open findings for one project", so partitioning by project (or time,
-  for `audit_runs`) is the scale step. Not warranted at this size.
-- **AuthN/AuthZ.** There is none. The PHP version is loopback-only via `guard.php`;
-  this service assumes it sits behind something. Anything multi-tenant needs a real
-  identity on the request, because `project` is currently a caller-supplied string and
-  nothing stops one project writing findings under another's name.
-- **`GET` has no pagination beyond a capped `limit`.** Fine for a dashboard showing the
-  worst 200; not fine as an export path.
+FastAPI owns the contract and domain rules; PostgreSQL owns persistence **and** ordering.
+Idempotency is a unique constraint, ordering is a row lock on the scope, and issue upserts
+are one `INSERT ... ON CONFLICT` per report. Reasoning for each choice, and what would
+change it, is in [docs/DECISIONS.md](docs/DECISIONS.md). Schema changes are numbered SQL
+files in `migrations/`, applied automatically at startup.
 
 ## Tests
 
-    make test
+```bash
+make test
+```
 
-The suite runs against real Postgres, on purpose. An in-memory SQLite substitute would
-not exercise `ON CONFLICT ... RETURNING`, `array_position`, or timezone-aware
-timestamps — which is most of what there is to get wrong here.
+Runs against real PostgreSQL (the suite uses `ON CONFLICT`, row locks and `jsonb`). It
+refuses to run unless the database name ends in `_test`, because it deletes all rows.
+Covered: identity, replay and conflict, concurrent delivery, resolve/reopen, stale,
+failed/partial/oversized, scope boundaries, filtering/pagination/counts, migrations from
+a v1-only database, and the adapter mapping. CI runs the suite against a `postgres:16`
+service container and builds the image.
 
-CI runs the same 19 tests against a `postgres:16` service container on every push,
-and builds the image, so neither depends on anything being installed on one machine.
+## Limitations
+
+- No authentication or authorization; `project` is just a string. Localhost only.
+- No per-issue event history, so no fix-rate or time-to-fix. `observation_count` counts
+  applied reports only.
+- The a11y adapter reports one issue per rule per page: `scan.json` keeps only the first
+  5 element selectors per rule. An issue resolves when a complete scan finds none of that
+  rule on the page.
+- Ordering trusts the producer's `scanned_at`.
+- Changing a ruleset starts new issues; old ones stay open until that ruleset is rescanned.
+- Automated accessibility checks find only part of real problems. Nothing here is a
+  conformance or compliance claim.
+- Rate limiting is per process. v1 data is not migrated into v2.
+- Deferred: dashboard-triggered scans, manual resolve/suppress, trends, Redis, v1 removal.

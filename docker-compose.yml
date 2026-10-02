@@ -1,5 +1,5 @@
 # Postgres for local development and the test suite. The credentials below are
-# throwaway and local-only; the container is not reachable off the host. The service itself runs on the
+# throwaway and local-only; the port is bound to loopback only. The service itself runs on the
 # host during development (uvicorn --reload); only the database is containerised.
 services:
   db:
@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: genesis
       POSTGRES_DB: findings
     ports:
-      - "55432:5432"
+      - "127.0.0.1:55432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U genesis -d findings"]
       interval: 2s

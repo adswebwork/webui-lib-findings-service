@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Findings dashboard</title>
+<style>
+  :root {
+    --bg:#f7f8fa; --panel:#fff; --text:#1b1f24; --muted:#555d68; --line:#d0d5dd; --accent:#0b5cad;
+    --high:#a4161a; --medium:#8a5300; --low:#2f5d3a; --ok:#1b6b3a; --warn:#8a5300; --bad:#a4161a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151a; --panel:#1b2027; --text:#e8ebef; --muted:#a3acb8; --line:#3a424d; --accent:#7db7f5;
+      --high:#ff8a8d; --medium:#f2b95c; --low:#8fd19e; --ok:#8fd19e; --warn:#f2b95c; --bad:#ff8a8d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:0 0 8px; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; margin:16px 0; }
+  a { color:var(--accent); }
+  :focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  label { display:block; font-size:.85rem; color:var(--muted); margin-bottom:2px; }
+  select, button, input { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line);
+    border-radius:6px; padding:8px 10px; min-height:44px; }
+  button { cursor:pointer; } button[aria-pressed="true"] { border-color:var(--accent); box-shadow:inset 0 0 0 2px var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  .row > div { min-width:0; flex:1 1 150px; } .row > div > select { width:100%; }
+  .banner { border-left:6px solid var(--line); padding:8px 12px; border-radius:4px; background:var(--bg); }
+  .banner.ok { border-color:var(--ok); } .banner.warn { border-color:var(--warn); } .banner.bad { border-color:var(--bad); }
+  .sev { font-weight:600; white-space:nowrap; } .sev.high { color:var(--high); } .sev.medium { color:var(--medium); } .sev.low { color:var(--low); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:.85rem; color:var(--muted); }
+  th, td, .muted { overflow-wrap:break-word; }
+  td[data-label="Page"], td:first-child, .muted { overflow-wrap:anywhere; }
+  th { white-space:nowrap; }
+  select { max-width:100%; }
+  td button { min-height:0; padding:2px 6px; text-align:left; border:0; background:none; color:var(--accent); text-decoration:underline; }
+  tr.sel td { background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  dl { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; margin:0; } dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; }
+  pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--bg); padding:8px; border-radius:6px; font-size:.85rem; }
+  .sr { position:absolute; left:-9999px; }
+  @media (max-width:640px) {
+    thead { display:none; } table, tbody, tr, td { display:block; width:100%; }
+    tr { border-bottom:1px solid var(--line); padding:8px 0; } td { border:0; padding:2px 0; }
+    td[data-label]::before { content:attr(data-label) ": "; color:var(--muted); font-size:.85rem; }
+    dl { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Findings dashboard</h1>
+  <p class="muted">Current website issues reported by automated checks. Read-only: fix the site, then run a new complete check to confirm. Automated checks find only part of all accessibility problems; this is not a compliance result.</p>
+
+  <div id="status" role="status" aria-live="polite"></div>
+
+  <section class="panel" aria-labelledby="h-project">
+    <h2 id="h-project">Project</h2>
+    <div class="row"><div><label for="project">Project</label><select id="project"></select></div></div>
+    <div id="project-info"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-issues" id="issues-panel" hidden>
+    <h2 id="h-issues">Issues</h2>
+    <div class="row" role="group" aria-label="Filter by severity" id="sev-filters"></div>
+    <div class="row" style="margin-top:12px">
+      <div><label for="f-state">State</label><select id="f-state"><option value="open">Open</option><option value="resolved">Resolved</option><option value="all">All</option></select></div>
+      <div><label for="f-page">Page</label><select id="f-page"></select></div>
+      <div><label for="f-category">Category</label><select id="f-category"></select></div>
+      <div><label for="f-source">Source</label><select id="f-source"></select></div>
+      <div><label for="f-sort">Sort by</label><select id="f-sort"><option value="severity">Severity</option><option value="last_seen">Last seen</option><option value="first_seen">First seen</option><option value="page">Page</option></select></div>
+    </div>
+    <p id="summary" class="muted" aria-live="polite"></p>
+    <table id="table"><caption class="sr">Issues</caption>
+      <thead><tr><th scope="col">Severity</th><th scope="col">Rule</th><th scope="col">Page</th><th scope="col">Source / category</th><th scope="col">State</th><th scope="col">First seen</th><th scope="col">Last seen</th></tr></thead>
+      <tbody id="rows"></tbody></table>
+    <div class="row" style="margin-top:12px">
+      <button id="prev">Previous</button><button id="next">Next</button>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-detail" id="detail-panel" hidden tabindex="-1">
+    <h2 id="h-detail">Issue details</h2>
+    <div id="detail"></div>
+  </section>
+</main>
+<script>
+const PAGE = 20;
+const $ = (id) => document.getElementById(id);
+const SEV = { high: "▲ High", medium: "◆ Medium", low: "● Low" };
+const state = { project: null, sev: null, offset: 0, selected: null, scopes: [] };
+
+function el(tag, props = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) k === "text" ? (n.textContent = v) : n.setAttribute(k, v);
+  n.append(...kids);
+  return n;
+}
+const fmt = (t) => (t ? new Date(t).toLocaleString() : "never");
+function setStatus(msg, kind = "") { const s = $("status"); s.replaceChildren(msg ? el("div", { class: "banner " + kind, text: msg }) : ""); }
+
+async function api(path) {
+  let r;
+  try { r = await fetch(path); } catch { throw new Error("The findings service is unreachable. Check that it is running."); }
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`The service returned an error (HTTP ${r.status}).`);
+  return r.json();
+}
+
+const HEALTH = {
+  no_scans: ["warn", "No checks have been received for this project yet."],
+  failed: ["bad", "The latest check on at least one page failed or was incomplete. Current issue state may be out of date."],
+  clean: ["ok", "The latest complete check found no open issues."],
+  issues: ["warn", "Open issues remain from the latest complete check."],
+};
+
+async function loadProjects() {
+  setStatus("Loading projects…");
+  const projects = await api("/v2/projects");
+  setStatus("");
+  const sel = $("project");
+  sel.replaceChildren(...projects.map((p) => el("option", { value: p.project, text: p.project })));
+  if (!projects.length) { $("project-info").replaceChildren(el("p", { text: "No projects yet. Submit a report to /v2/reports, then reload." })); return; }
+  const want = new URLSearchParams(location.search).get("project");
+  if (want && projects.some((p) => p.project === want)) sel.value = want;
+  await selectProject(sel.value);
+}
+
+async function selectProject(name) {
+  state.project = name; state.sev = null; state.offset = 0; state.selected = null;
+  $("detail-panel").hidden = true;
+  const info = await api("/v2/projects/" + encodeURIComponent(name));
+  if (!info) { $("project-info").replaceChildren(el("p", { text: "Project not found." })); return; }
+  state.scopes = info.scope_list;
+  const [kind, text] = HEALTH[info.health];
+  const scopeRows = info.scope_list.map((s) => el("tr", {},
+    el("td", { text: s.page }), el("td", { text: `${s.source} / ${s.category}` }),
+    el("td", { text: s.last_attempt_status ?? "—" }), el("td", { text: fmt(s.last_scanned_at) })));
+  $("project-info").replaceChildren(
+    el("div", { class: "banner " + kind, text }),
+    el("p", { class: "muted", text: `Last complete check: ${fmt(info.last_scanned_at)}. ${info.scopes} page scope(s), ${info.failed_scopes} with a failed or partial latest check.` }),
+    el("table", {}, el("caption", { class: "sr", text: "Checked pages" }),
+      el("thead", {}, el("tr", {}, ...["Page", "Source / category", "Latest check", "Last complete check"].map((h) => el("th", { scope: "col", text: h })))),
+      el("tbody", {}, ...scopeRows)));
+  fillSelect("f-page", [...new Set(info.scope_list.map((s) => s.page))]);
+  fillSelect("f-category", [...new Set(info.scope_list.map((s) => s.category))]);
+  fillSelect("f-source", [...new Set(info.scope_list.map((s) => s.source))]);
+  $("issues-panel").hidden = false;
+  await loadIssues();
+}
+
+function fillSelect(id, values) {
+  $(id).replaceChildren(el("option", { value: "", text: "All" }), ...values.map((v) => el("option", { value: v, text: v })));
+}
+
+async function loadIssues() {
+  const q = new URLSearchParams({ state: $("f-state").value, sort: $("f-sort").value, limit: PAGE, offset: state.offset });
+  for (const [id, key] of [["f-page", "page"], ["f-category", "category"], ["f-source", "source"]]) if ($(id).value) q.set(key, $(id).value);
+  if (state.sev) q.set("severity", state.sev);
+  $("summary").textContent = "Loading issues…";
+  let data;
+  try { data = await api(`/v2/projects/${encodeURIComponent(state.project)}/issues?${q}`); }
+  catch (e) { $("summary").textContent = ""; setStatus(e.message, "bad"); return; }
+  setStatus("");
+  $("sev-filters").replaceChildren(...["high", "medium", "low"].map((s) => {
+    const b = el("button", { type: "button", "aria-pressed": String(state.sev === s), text: `${SEV[s]}: ${data.counts[s]}` });
+    b.onclick = () => { state.sev = state.sev === s ? null : s; state.offset = 0; loadIssues(); };
+    return b;
+  }));
+  const from = data.total ? data.offset + 1 : 0, to = data.offset + data.items.length;
+  $("summary").textContent = data.total ? `Showing ${from}–${to} of ${data.total} issue(s).` : "No issues match these filters.";
+  $("prev").disabled = data.offset === 0;
+  $("next").disabled = to >= data.total;
+  $("rows").replaceChildren(...data.items.map((i) => {
+    const btn = el("button", { type: "button", text: i.rule_id });
+    btn.onclick = () => showDetail(i.id, tr);
+    const tr = el("tr", state.selected === i.id ? { class: "sel" } : {},
+      el("td", { "data-label": "Severity" }, el("span", { class: "sev " + i.severity, text: SEV[i.severity] })),
+      el("td", { "data-label": "Rule" }, btn, el("div", { class: "muted", text: i.detail })),
+      el("td", { "data-label": "Page", text: i.page }),
+      el("td", { "data-label": "Source", text: `${i.source} / ${i.category}` }),
+      el("td", { "data-label": "State", text: i.state }),
+      el("td", { "data-label": "First seen", text: fmt(i.first_seen_at) }),
+      el("td", { "data-label": "Last seen", text: fmt(i.last_seen_at) }));
+    return tr;
+  }));
+}
+
+async function showDetail(id, row) {
+  state.selected = id;
+  document.querySelectorAll("tr.sel").forEach((r) => r.classList.remove("sel"));
+  row.classList.add("sel");
+  let i;
+  try { i = await api("/v2/issues/" + id); } catch (e) { setStatus(e.message, "bad"); return; }
+  const ev = i.evidence || {};
+  const dl = el("dl", {},
+    el("dt", { text: "Rule" }), el("dd", { text: `${i.rule_id} — ${i.detail}` }),
+    el("dt", { text: "Severity" }), el("dd", { text: SEV[i.severity] }),
+    el("dt", { text: "Page" }), el("dd", { text: i.page }),
+    el("dt", { text: "Location" }), el("dd", { text: i.locator || "page-level (see examples below)" }),
+    el("dt", { text: "State" }), el("dd", { text: i.state + (i.resolved_at ? ` (${fmt(i.resolved_at)})` : "") }),
+    el("dt", { text: "Seen in" }), el("dd", { text: `${i.observation_count} complete check(s); first ${fmt(i.first_seen_at)}, last ${fmt(i.last_seen_at)}` }));
+  if (ev.instances != null) dl.append(el("dt", { text: "Instances" }), el("dd", { text: `${ev.instances} on the page when last seen` }));
+  if (ev.wcag?.length) dl.append(el("dt", { text: "WCAG" }), el("dd", { text: `${ev.wcag.join(", ")}${ev.level ? " (level " + ev.level + ")" : ""}` }));
+  const parts = [dl];
+  if (i.help_url) parts.push(el("p", {}, el("a", { href: i.help_url, rel: "noopener noreferrer", text: "Rule documentation and how to fix it" })));
+  for (const ex of ev.examples || []) {
+    parts.push(el("h3", { text: `Example: ${ex.target || "element"}` }), el("pre", { text: ex.html || "" }), el("pre", { text: ex.summary || "" }));
+  }
+  $("detail").replaceChildren(...parts);
+  const p = $("detail-panel"); p.hidden = false; p.focus(); p.scrollIntoView({ block: "nearest" });
+}
+
+for (const id of ["f-state", "f-page", "f-category", "f-source", "f-sort"]) $(id).onchange = () => { state.offset = 0; loadIssues(); };
+$("prev").onclick = () => { state.offset = Math.max(0, state.offset - PAGE); loadIssues(); };
+$("next").onclick = () => { state.offset += PAGE; loadIssues(); };
+$("project").onchange = (e) => selectProject(e.target.value).catch((x) => setStatus(x.message, "bad"));
+loadProjects().catch((e) => { setStatus(e.message, "bad"); });
+</script>
+</body>
+</html>

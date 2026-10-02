@@ -1,0 +1,107 @@
+{
+  "meta": {
+    "tool": "a11y-audit scan.mjs",
+    "axeVersion": "4.13.0",
+    "browser": "chromium 153.0.8010.12",
+    "tags": [
+      "wcag2a",
+      "wcag2aa",
+      "wcag21a",
+      "wcag21aa",
+      "wcag22a",
+      "wcag22aa"
+    ],
+    "generated": "2026-10-02T15:44:35.280Z"
+  },
+  "results": [
+    {
+      "url": "http://127.0.0.1:8765/checkout.html",
+      "scannedAt": "2026-10-02T15:44:33.373Z",
+      "status": 200,
+      "finalUrl": "http://127.0.0.1:8765/checkout.html",
+      "title": "Checkout (demo)",
+      "lang": "en",
+      "violations": [
+        {
+          "id": "image-alt",
+          "impact": "critical",
+          "help": "Images must have alternative text",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/image-alt?application=playwright",
+          "criteria": [
+            "1.1.1"
+          ],
+          "version": "2.0",
+          "level": "A",
+          "referencedBy": [
+            "Section 508",
+            "HHS Section 504",
+            "ADA Title II"
+          ],
+          "wcag": true,
+          "instances": 1,
+          "examples": [
+            {
+              "target": "img",
+              "html": "<img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACw=\" width=\"40\" height=\"40\">",
+              "summary": "Fix any of the following:\n  Element does not have an alt attribute\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element's default semantics were not overridden with role=\"none\" or role=\"presentation\""
+            }
+          ]
+        },
+        {
+          "id": "label",
+          "impact": "critical",
+          "help": "Form elements must have labels",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/label?application=playwright",
+          "criteria": [
+            "4.1.2"
+          ],
+          "version": "2.0",
+          "level": "A",
+          "referencedBy": [
+            "Section 508",
+            "HHS Section 504",
+            "ADA Title II"
+          ],
+          "wcag": true,
+          "instances": 1,
+          "examples": [
+            {
+              "target": "#qty",
+              "html": "<input type=\"text\" id=\"qty\">",
+              "summary": "Fix any of the following:\n  Element does not have an implicit (wrapped) <label>\n  Element does not have an explicit <label>\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element has no placeholder attribute\n  Element's default semantics were"
+            }
+          ]
+        }
+      ],
+      "needsReview": [],
+      "passes": 9,
+      "inapplicable": 52,
+      "focus": [
+        {
+          "element": "input#qty",
+          "role": "",
+          "name": "",
+          "visibleIndicator": true,
+          "inViewport": true
+        },
+        {
+          "element": "button",
+          "role": "",
+          "name": "Place order",
+          "visibleIndicator": true,
+          "inViewport": true
+        },
+        {
+          "element": "body",
+          "note": "focus returned to document"
+        }
+      ],
+      "reflow": {
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "horizontalScroll": false
+      }
+    }
+  ],
+  "note": "DEMO FIXTURE: real a11y-audit scan.mjs output for demo/pages/broken.html served on 127.0.0.1:8765. Not a client audit."
+}
