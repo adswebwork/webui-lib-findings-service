@@ -25,6 +25,9 @@ Reviewed: 2026-10-12. Status: confirmed for the actions below. Decision owner: A
 
 ## Verification and limitations
 
-Owner authorization is explicit and consistent with repository constraints. Docker was unavailable during initial verification, so no database tests or local service startup were performed. The `_test` suffix is necessary but does not replace checking resource identity and disposability.
+Owner authorization is explicit and consistent with repository constraints. The `_test` suffix is necessary but does not replace checking resource identity and disposability.
 
-Next permitted action: complete repository context documentation and command discovery, then run tests when a disposable local database is available. Revisit this matrix if data, services, or actions change.
+- 2026-10-12: Docker was unavailable; no database tests or local service startup were performed.
+- 2026-10-16 (Claude Code, base `5044b75`): target identity checked before execution — `findings_test` on the project's own `docker-compose.yml` Postgres, published on `127.0.0.1:55432` only, throwaway local credentials, `FINDINGS_DATABASE_URL` unset so the `conftest.py` default applied. `make test`: 45 passed in 3.8s (about 9.5s including container start). Local service startup and real scans were not exercised.
+
+Next permitted action: use this matrix for Context Pack, Self-Review, Impact Log, and Scope Guard work on this repository. Revisit it if data, services, or actions change.
