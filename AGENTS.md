@@ -14,7 +14,7 @@ Read [AI permissions](docs/AI_PERMISSIONS.md), [context and commands](docs/CONTE
 
 - Preserve legacy v1 compatibility; use v2 for new producers.
 - Verify report replay/conflict handling and scope-locked ordering under concurrency.
-- Only newer complete reports may resolve issues within their exact scope. Failed, partial, and stale reports must not make issue state healthier.
+- Only a complete report newer than the scope's last *applied* complete report may resolve issues, and only within its exact scope. Failed, partial, and stale reports must not make issue state healthier.
 - Changes to detail/severity/evidence must not change issue identity. Changing rulesets changes identity/scope.
 - Verify numbered migrations against real PostgreSQL; SQLite is not a substitute.
 - Check dashboard accessibility and security when affected; automated checks do not establish conformance.
