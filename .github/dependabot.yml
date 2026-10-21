@@ -1,3 +1,6 @@
+# One grouped PR per ecosystem per week instead of one PR per package.
+# Major pip upgrades (e.g. pytest-asyncio 1.x) change behavior and need test
+# changes, so they're done by hand rather than as automatic bumps.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -7,6 +10,9 @@ updates:
     commit-message:
       prefix: ci
     labels: [dependencies]
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: pip
     directory: /
@@ -15,3 +21,9 @@ updates:
     commit-message:
       prefix: deps
     labels: [dependencies]
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
